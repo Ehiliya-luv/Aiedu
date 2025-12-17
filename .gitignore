@@ -1,0 +1,15 @@
+output/
+logs/
+checkpoints/
+results/
+__pycache__/
+*.log
+*.pth
+*.pt
+*.safetensors
+*.bin
+*.zip
+*.tar.gz
+.DS_Store
+.vscode/
+.idea/

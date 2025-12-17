@@ -1,0 +1,24 @@
+[
+  {
+    "input_context": "一、基本信息\n病区: 心内科 住院号: 38***18\n...",
+    "prompt": "请根据以上病历生成一道A1型医学选择题...",
+    "model_output": "冠状动脉粥样硬化要紧侵犯以下分支( )\nA. 回旋支、左室支...",
+    "expert_revision": "冠状动脉粥样硬化主要侵犯以下哪支冠状动脉分支？\nA. 回旋支和左室后支...",
+    "metadata": {
+      "question_type": "A1",
+      "topic": "冠状动脉解剖",
+      "difficulty_level": "medium"
+    }
+  },
+  {
+    "input_context": "一、基本信息\n病区: 车谷院区N10南呼吸与危重症医学科 住院号: 3959658\n...",
+    "prompt": "请基于以上完整病历信息，生成一道符合医学考试规范的A2型题...",
+    "model_output": "男性，59岁，因\"发热10天余，胸闷喘气4天余\"入院...",
+    "expert_revision": "男性，59岁，吸烟史40年（1包/日），因\"发热10天余，胸闷喘气4天余\"入院...",
+    "metadata": {
+      "question_type": "A2",
+      "topic": "呼吸系统感染",
+      "difficulty_level": "high"
+    }
+  }
+]

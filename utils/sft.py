@@ -26,32 +26,21 @@ def create_model_and_trainer(
 ):
     """创建并配置 SFT 训练器，兼容最新 trl API"""
     
-    # ===== 1. 修复量化配置 =====
-    compute_dtype = torch.bfloat16 if bf16 and torch.cuda.is_bf16_supported() else torch.float16
+    # ===== 1. 简化配置 - 不使用量化以避免数据类型不匹配问题 =====
+    logger.info("Loading model without quantization to avoid dtype mismatch issues")
     
-    quantization_config = BitsAndBytesConfig(
-        load_in_4bit=True,
-        bnb_4bit_quant_type="nf4",
-        bnb_4bit_compute_dtype=compute_dtype,
-        bnb_4bit_use_double_quant=True,
-        bnb_4bit_quant_storage=torch.float16
-    )
-    
-    logger.info(f"Loading model with quantization config: {quantization_config}")
-    logger.info(f"Using compute dtype: {compute_dtype}")
-    
-    # ===== 2. 加载模型（带内存优化） =====
+    # ===== 2. 加载模型 =====
     try:
         model = AutoModelForCausalLM.from_pretrained(
             model_name,
             trust_remote_code=True,
-            device_map="auto",
-            quantization_config=quantization_config,
+            torch_dtype=torch.float32,
+            device_map="cuda:0" if torch.cuda.is_available() else "cpu",
             resume_download=True,
             local_files_only=False,
             use_cache=False if use_gradient_checkpointing else True
         )
-        logger.info("✅ Model loaded successfully with quantization")
+        logger.info("✅ Model loaded successfully")
     except Exception as e:
         logger.error(f"❌ Failed to load model: {str(e)}")
         raise
@@ -62,15 +51,7 @@ def create_model_and_trainer(
             delattr(model.generation_config, "quantization_config")
         logger.info("✅ Fixed generation config to avoid serialization error")
     
-    # ===== 4. 准备模型进行 4-bit 训练 =====
-    model = prepare_model_for_kbit_training(
-        model, 
-        use_gradient_checkpointing=use_gradient_checkpointing
-    )
-    logger.info("✅ Prepared model for k-bit training")
-    
-    # ===== 5. LoRA 配置（优化目标模块） =====
-    # 智能检测目标模块
+    # ===== 4. LoRA 配置 =====
     target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
     if hasattr(model.model.layers[0], 'mlp') and hasattr(model.model.layers[0].mlp, 'gate_proj'):
         target_modules.extend(["gate_proj", "up_proj", "down_proj"])
@@ -82,7 +63,6 @@ def create_model_and_trainer(
         lora_dropout=0.05,
         target_modules=target_modules,
         bias="none",
-        modules_to_save=["embed_tokens", "lm_head"],
         init_lora_weights="gaussian"
     )
     
@@ -91,7 +71,7 @@ def create_model_and_trainer(
     model.print_trainable_parameters()
     logger.info(f"✅ Applied LoRA config: {peft_config}")
     
-    # ===== 6. 训练参数（优化内存使用） =====
+    # ===== 5. 训练参数 =====
     training_args = TrainingArguments(
         output_dir=output_dir,
         per_device_train_batch_size=per_device_batch_size,
@@ -102,11 +82,11 @@ def create_model_and_trainer(
         save_strategy="steps",
         save_steps=50,
         eval_strategy="no",
-        optim="paged_adamw_8bit",
+        optim="adamw_8bit",
         lr_scheduler_type="cosine_with_restarts",
         warmup_ratio=0.03,
-        bf16=bf16 and torch.cuda.is_bf16_supported(),
-        fp16=not (bf16 and torch.cuda.is_bf16_supported()),
+        bf16=False,
+        fp16=False,
         max_grad_norm=0.3,
         weight_decay=0.01,
         report_to="none",
@@ -115,16 +95,15 @@ def create_model_and_trainer(
         gradient_checkpointing_kwargs={"use_reentrant": False},
         dataloader_num_workers=2,
         dataloader_pin_memory=True,
-        remove_unused_columns=False,  # 保持所有列
+        remove_unused_columns=False,
         seed=42
     )
     
-    # ===== 7. 修复 SFTTrainer 初始化 =====
+    # ===== 6. 创建 SFT 训练器 =====
     def formatting_func(examples):
         texts = []
         for i in range(len(examples["text"])):
             text = str(examples["text"][i])
-            # 确保文本长度合理
             if len(text) > 2000:
                 text = text[:2000] + "..."
             texts.append(text)

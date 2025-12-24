@@ -14,7 +14,7 @@ import json
 from typing import Optional, List
 
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 # 配置日志
 logging.basicConfig(
@@ -37,17 +37,66 @@ def setup_env():
     """统一的环境变量设置"""
     os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
     os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "1"
-    
+
     cache_dir = "/tmp/.cache/huggingface"
     os.makedirs(cache_dir, exist_ok=True)
     os.environ["TRANSFORMERS_CACHE"] = cache_dir
     os.environ["HF_HOME"] = cache_dir
-    
+
     os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
-    
+
     return cache_dir
+
+
+def detect_gpu_config():
+    """检测GPU配置并返回优化参数"""
+    if not torch.cuda.is_available():
+        return {
+            "num_gpus": 0,
+            "device": "cpu",
+            "use_qlora": False,
+            "batch_size": 1,
+            "gradient_accumulation_steps": 8
+        }
+
+    num_gpus = torch.cuda.device_count()
+    total_memory = sum(torch.cuda.get_device_properties(i).total_memory for i in range(num_gpus)) / (1024**3)  # GB
+
+    logger.info(f"检测到 {num_gpus} 个GPU，总显存: {total_memory:.1f}GB")
+
+    # 根据GPU数量和显存调整配置
+    if num_gpus >= 8 and total_memory >= 200:  # 8x3090配置
+        config = {
+            "num_gpus": num_gpus,
+            "device": "cuda",
+            "use_qlora": True,  # 使用量化节省显存
+            "batch_size": 2,    # 每个GPU的batch size
+            "gradient_accumulation_steps": 4,
+            "model_parallel": True
+        }
+    elif num_gpus >= 4:
+        config = {
+            "num_gpus": num_gpus,
+            "device": "cuda",
+            "use_qlora": True,
+            "batch_size": 1,
+            "gradient_accumulation_steps": 8,
+            "model_parallel": True
+        }
+    else:
+        config = {
+            "num_gpus": num_gpus,
+            "device": "cuda",
+            "use_qlora": True,
+            "batch_size": 1,
+            "gradient_accumulation_steps": 16,
+            "model_parallel": False
+        }
+
+    logger.info(f"GPU配置: {config}")
+    return config
 
 
 def load_jsonl_texts(path: str, max_items: Optional[int] = None) -> List[str]:
@@ -154,7 +203,8 @@ def run_rl(sft_model_path: str,
            max_new_tokens: int = 64,
            temperature: float = 1.0,
            top_p: float = 0.95,
-           use_qlora: bool = False):
+           use_qlora: bool = False,
+           gpu_config: dict = None):
     """运行 GRPO 强化学习"""
     logger.info("=" * 80)
     logger.info("🚀 开始 GRPO 强化学习模块")
@@ -200,6 +250,10 @@ def run_rl(sft_model_path: str,
     # 创建 GRPO 训练器
     logger.info("🧠 创建 GRPO 训练器...")
     try:
+        # 根据GPU配置调整batch_size
+        effective_batch_size = gpu_config.get("batch_size", batch_size)
+        logger.info(f"使用batch_size: {effective_batch_size}")
+
         grpo_trainer = GRPOTrainerWrapper(
             model=model,
             tokenizer=tokenizer,
@@ -239,7 +293,8 @@ def run_rl(sft_model_path: str,
                     logger.info(
                         f"  Batch {batch_idx}/{total_batches} | "
                         f"reward_mean={stats.get('reward_mean', 0):.4f} | "
-                        f"reward_max={stats.get('reward_max', 0):.4f}"
+                        f"reward_max={stats.get('reward_max', 0):.4f} | "
+                        f"batch_size={len(batch_prompts)}"
                     )
                 except Exception as e:
                     logger.exception(f"❌ 训练 batch 失败，跳过: {str(e)}")
@@ -280,20 +335,20 @@ def parse_args():
         description="医学考题生成优化 - SFT 与 GRPO 综合训练框架",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-示例用法：
-  # 仅 SFT 微调
-  python main.py --mode sft
-  
-  # 仅 GRPO 强化学习（从 SFT 模型加载）
-  python main.py --mode rl
-  
-  # 先 SFT 后 GRPO
-  python main.py --mode sft+rl
-  
-  # 自定义参数
-  python main.py --mode rl --reward-type basic --epochs 2 --batch-size 8
-        """
-    )
+    示例用法：
+    # 仅 SFT 微调
+    python main.py --mode sft
+    
+    # 仅 GRPO 强化学习（从 SFT 模型加载）
+    python main.py --mode rl
+    
+    # 先 SFT 后 GRPO
+    python main.py --mode sft+rl
+    
+    # 自定义参数
+    python main.py --mode rl --reward-type basic --epochs 2 --batch-size 8
+            """
+        )
     
     # 基础参数
     parser.add_argument(
@@ -396,12 +451,16 @@ def parse_args():
 def main():
     """主函数"""
     args = parse_args()
-    
+
     # 设置环境
     cache_dir = setup_env()
-    
+
+    # 检测GPU配置
+    gpu_config = detect_gpu_config()
+
     logger.info("🎯 运行模式: %s", args.mode)
     logger.info("📋 配置参数: %s", vars(args))
+    logger.info("🖥️  GPU配置: %s", gpu_config)
     
     try:
         if args.mode == "sft":
@@ -428,7 +487,8 @@ def main():
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
                 top_p=args.top_p,
-                use_qlora=args.use_qlora
+                use_qlora=args.use_qlora,
+                gpu_config=gpu_config
             )
         
         elif args.mode == "sft+rl":
@@ -457,7 +517,8 @@ def main():
                 max_new_tokens=args.max_new_tokens,
                 temperature=args.temperature,
                 top_p=args.top_p,
-                use_qlora=args.use_qlora
+                use_qlora=args.use_qlora,
+                gpu_config=gpu_config
             )
         
         logger.info("=" * 80)

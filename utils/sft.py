@@ -35,7 +35,7 @@ def create_model_and_trainer(
             model_name,
             trust_remote_code=True,
             torch_dtype=torch.float32,
-            device_map="cuda:0" if torch.cuda.is_available() else "cpu",
+            device_map="auto" if torch.cuda.is_available() else "cpu",
             resume_download=True,
             local_files_only=False,
             use_cache=False if use_gradient_checkpointing else True

@@ -4,23 +4,30 @@ torchvision==0.19.0
 torchaudio==2.4.0
 --extra-index-url https://download.pytorch.org/whl/cu126
 
-# 核心训练库
-transformers
-accelerate
-peft
-trl
-bitsandbytes
+# 核心训练库（关键！）
+transformers>=4.36.0
+accelerate>=0.24.0
+peft>=0.10.0
+trl>=0.11.0  # 较新版本，包含GRPO支持
+bitsandbytes>=0.43.0
 
 # 数据处理
-datasets
-jsonlines
+datasets>=2.18.0
+jsonlines>=4.0.0
 
 # 工具
 tqdm
-numpy
+numpy>=1.24.0
 scipy
 pandas
 sentencepiece
-protobuf
+protobuf<=3.20.3  # 高版本与部分旧模型不兼容
 regex
-tf-keras
+rich  # trl依赖的模块
+
+# Reward相关
+bert-score
+seqeval
+
+# NER医学模型
+spacy

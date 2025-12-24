@@ -4,9 +4,17 @@ import numpy as np
 import torch
 from transformers import AutoTokenizer, AutoModel
 from difflib import SequenceMatcher
+import logging
+
+# 导入新的reward实现
+from .reward_new import (
+    compute_advanced_reward as compute_advanced_reward_new,
+    TrainableRewardWeights,
+)
 
 # 默认轻量句向量模型，可按需替换为项目中的 tokenizer/model 路径
 DEFAULT_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+logger = logging.getLogger(__name__)
 
 
 def load_tokenizer_and_model(model_name: str = DEFAULT_MODEL, device: str = "cpu"):
@@ -89,102 +97,28 @@ def compute_basic_reward(original: str, revised: str,
     return reward
 
 
-def _align_dp(toks_a: List[str], toks_b: List[str], tokenizer, model, device: str,
-              gap_penalty: float = -0.5) -> Tuple[List[Tuple[Optional[str], Optional[str]]], float]:
-    """
-    简单的基于 embedding 的 Needleman–Wunsch 风格对齐（最大化打分）：
-    使用 token embedding 的余弦作为 match 得分，gap 使用固定惩罚。
-    返回对齐对列与平均对齐得分（在 [-1,1]）。
-    """
-    na, nb = len(toks_a), len(toks_b)
-    embs_a = [_token_embedding(t, tokenizer, model, device) for t in toks_a]
-    embs_b = [_token_embedding(t, tokenizer, model, device) for t in toks_b]
-
-    dp = [[-1e9] * (nb + 1) for _ in range(na + 1)]
-    bt = [[None] * (nb + 1) for _ in range(na + 1)]
-    dp[0][0] = 0.0
-    for i in range(1, na + 1):
-        dp[i][0] = dp[i-1][0] + gap_penalty
-        bt[i][0] = (i-1, 0)
-    for j in range(1, nb + 1):
-        dp[0][j] = dp[0][j-1] + gap_penalty
-        bt[0][j] = (0, j-1)
-
-    for i in range(1, na + 1):
-        for j in range(1, nb + 1):
-            match_score = _cosine(embs_a[i-1], embs_b[j-1])
-            vals = [
-                (dp[i-1][j-1] + match_score, (i-1, j-1)),
-                (dp[i-1][j] + gap_penalty, (i-1, j)),
-                (dp[i][j-1] + gap_penalty, (i, j-1))
-            ]
-            best_val, best_bt = max(vals, key=lambda x: x[0])
-            dp[i][j] = best_val
-            bt[i][j] = best_bt
-
-    i, j = na, nb
-    alignment = []
-    scores = []
-    while i > 0 or j > 0:
-        pi, pj = bt[i][j]
-        if pi is None and pj is None:
-            break
-        if pi == i-1 and pj == j-1:
-            alignment.append((toks_a[i-1], toks_b[j-1]))
-            scores.append(_cosine(embs_a[i-1], embs_b[j-1]))
-        elif pi == i-1 and pj == j:
-            alignment.append((toks_a[i-1], None))
-            scores.append(gap_penalty)
-        else:
-            alignment.append((None, toks_b[j-1]))
-            scores.append(gap_penalty)
-        i, j = pi, pj
-    alignment.reverse()
-    avg_score = float(np.mean(scores)) if scores else 0.0
-    return alignment, avg_score
-
-
-def _number_entities(text: str) -> List[str]:
-    """
-    简单识别数值/单位实体（数字、百分号、常见单位）
-    """
-    return re.findall(r"\d+(?:\.\d+)?%?|(?:\d+(?:\.\d+)?\s*(?:mg|ml|g|mmol|cm|mm|μg|kg|L|ml))", text, flags=re.I)
-
-
 def compute_advanced_reward(original: str, revised: str,
                             tokenizer=None, model=None, device: str = "cpu",
                             model_name: str = DEFAULT_MODEL) -> float:
     """
-    进阶策略：
-      - 基于 embedding 的 DP 序列对齐得到局部余弦平均（主要分数）；
-      - 检测数值/单位实体更改（若发生则强惩罚）；
-      - 使用全文字符串相似度作平滑。
+    进阶医学NER+BertScore Reward 计算：
+    使用医学NER识别关键实体，计算实体相似度和BertScore相似度，
+    然后使用可训练权重组合两个相似度。
+    
+    该函数调用reward_new.py中的新实现。
     返回值映射到 [0,1]。
     """
-    if original.strip() == revised.strip():
-        return 1.0
-    if tokenizer is None or model is None:
-        tokenizer, model, device = load_tokenizer_and_model(model_name, device)
+    return compute_advanced_reward_new(
+        original=original,
+        revised=revised,
+        tokenizer=tokenizer,
+        model=model,
+        device=device,
+        model_name=model_name,
+        lambda_e_init=0.5,
+        lambda_t_init=0.5
+    )
 
-    toks_o = _tokens(original, tokenizer)
-    toks_r = _tokens(revised, tokenizer)
-
-    if len(toks_r) == 0:
-        return 0.03
-
-    _, avg_cos = _align_dp(toks_o, toks_r, tokenizer, model, device, gap_penalty=-0.6)
-    align_score = max(0.0, min(1.0, (avg_cos + 1.0) / 2.0))
-
-    nums_o = _number_entities(original)
-    nums_r = _number_entities(revised)
-    entity_factor = 0.4 if nums_o != nums_r else 1.0
-
-    seq_ratio = SequenceMatcher(None, original, revised).ratio()
-    ratio_factor = max(0.0, min(1.0, seq_ratio))
-
-    reward = align_score * entity_factor * (0.6 * ratio_factor + 0.4)
-    reward = max(0.0, min(1.0, reward))
-    return reward
 
 
 __all__ = [

@@ -15,7 +15,7 @@ def convert_json_to_jsonl(json_path: str):
     json_path = Path(json_path)
     if not json_path.exists():
         print(f"❌ 错误：文件不存在 → {json_path}", file=sys.stderr)
-        sys.exit(1)
+        sys.exit(1) 
 
     if json_path.suffix.lower() != '.json':
         print(f"⚠️  警告：文件不是 .json 后缀，但仍尝试转换 → {json_path}")

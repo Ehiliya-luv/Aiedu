@@ -1,217 +1,230 @@
 # Aiedu
 
-Aiedu 是一个面向医学教育场景的模型训练与评测项目。当前主要流程是：
+Aiedu is a research codebase for medical education model training and evaluation.
 
-1. 使用 DPO 偏好数据微调基础模型。
-2. 用训练后的模型针对病例生成不同任务的输出。
-3. 使用 LLM Judge 比较各个候选模型与 base model 的输出质量。
-4. 将多组 candidate-vs-base 结果聚合成统一的 Anchor Score 排名。
+The public repository contains code only. Datasets, model weights, generated outputs, experiment results, local resources, and private data extraction scripts are intentionally excluded.
 
-本仓库只保留项目代码。数据、模型权重、生成结果、评测结果和本地资源目录不会上传到 GitHub。
+## Overview
 
-## 环境安装
+The typical workflow is:
 
-根目录主训练流程使用 VERL 相关环境，优先安装：
+1. Prepare preference data for DPO training.
+2. Train or continue training a model.
+3. Generate task outputs with base and candidate models.
+4. Compare each candidate model against a base model with `compare_experiments.py`.
+5. Aggregate all candidate-vs-base comparisons with `aggregate_anchor_compare.py`.
+
+## Environment
+
+The main training workflow uses the VERL-related environment:
 
 ```bash
 pip install -r requirements_verl.txt
 ```
 
-`requirements_gpu.txt` 是备用依赖文件，可在不跑 VERL 主流程、只需要普通 GPU 推理/评测依赖时使用：
+`requirements_gpu.txt` is kept as a fallback dependency file for GPU-only utilities or evaluation workflows.
 
-```bash
-pip install -r requirements_gpu.txt
-```
-
-DPO 子目录提供了独立依赖：
+The DPO module has separate dependency files:
 
 ```bash
 pip install -r dpo/requirements_gpu.txt
 ```
 
-NPU 环境可参考：
+For NPU environments:
 
 ```bash
 pip install -r dpo/requirements_npu.txt
 ```
 
-## DPO 训练
+## Data Format
 
-DPO 训练入口是 `dpo/main.py`。训练数据默认读取 `data/dpo_pairs.jsonl`，该文件不包含在仓库中。
+DPO training expects a JSONL file with one preference pair per line:
 
-最小示例：
-
-```bash
-python dpo/main.py \
-  --dataset data/dpo_pairs.jsonl \
-  --model-name Qwen/Qwen2.5-0.5B-Instruct \
-  --output-dir output/dpo_model
+```json
+{
+  "prompt": "instruction or context",
+  "chosen": "preferred answer",
+  "rejected": "less preferred answer",
+  "meta": {
+    "sample_id": "optional-id",
+    "question_type": "optional-task-type"
+  }
+}
 ```
 
-常用参数：
+The dataset path is supplied at runtime and is not part of this repository.
+
+## DPO Training
+
+The DPO entry point is `dpo/main.py`.
 
 ```bash
 python dpo/main.py \
-  --dataset data/dpo_pairs.jsonl \
-  --model-name resources/model/Qwen__Qwen2.5-0.5B-Instruct \
-  --output-dir output/dpo-full20 \
+  --dataset <path-to-dpo-pairs.jsonl> \
+  --model-name <base-model-or-local-path> \
+  --output-dir <output-model-dir>
+```
+
+Common options:
+
+```bash
+python dpo/main.py \
+  --dataset <path-to-dpo-pairs.jsonl> \
+  --model-name <base-model-or-local-path> \
+  --output-dir <output-model-dir> \
   --num-epochs 1 \
   --batch-size 1 \
   --gradient-accumulation-steps 8 \
   --learning-rate 5e-6 \
   --beta 0.1 \
   --max-length 4096 \
-  --max-prompt-length 3072 \
-  --save-steps 100
+  --max-prompt-length 3072
 ```
 
-默认使用 LoRA。需要全参数训练时加：
+By default, training uses LoRA. Use full fine-tuning when needed:
 
 ```bash
 --full-finetune
 ```
 
-CUDA 环境下需要 QLoRA 时加：
+Enable QLoRA on supported CUDA environments:
 
 ```bash
 --use-qlora
 ```
 
-## 生成模型输出
+## Generate Model Outputs
 
-训练完成后，用 `generate_output.py` 对病例生成四类任务输出：
-
-- `1`: 病历标准化
-- `2`: 考题生成
-- `3`: 临床思维
-- `4`: 病历综合评分
-
-LoRA/adapter 模型示例：
+Use `generate_output.py` to generate outputs for the evaluation tasks.
 
 ```bash
 python generate_output.py \
   --backend vllm \
-  --data-dir data/病例 \
-  --base-model-path resources/model/Baichuan-M2-32B-0226 \
-  --model-path output/dpo-full20-ckp1200 \
-  --output-dir results/dpo-full20-ckp1200 \
+  --data-dir <case-input-dir> \
+  --base-model-path <base-model-path> \
+  --model-path <candidate-adapter-or-model-dir> \
+  --output-dir <candidate-output-dir> \
   --tasks 1,2,3,4
 ```
 
-base model 输出也需要单独生成，作为后续比较的 anchor：
+Generate base model outputs separately:
 
 ```bash
 python generate_output.py \
   --backend vllm \
-  --data-dir data/病例 \
-  --base-model-path resources/model/Baichuan-M2-32B-0226 \
+  --data-dir <case-input-dir> \
+  --base-model-path <base-model-path> \
   --use-base-model \
-  --output-dir results/base_model_baichuan-full \
+  --output-dir <base-output-dir> \
   --tasks 1,2,3,4
 ```
 
-`compare_experiments.py` 期望 `--results-dir` 下每个模型一个目录，例如：
+Task IDs:
+
+- `1`: medical record standardization
+- `2`: question generation
+- `3`: clinical reasoning
+- `4`: comprehensive scoring
+
+The comparison scripts expect one output directory per model under a shared result root:
 
 ```text
-results/
-  base_model_baichuan-full/
-  dpo-full10/
-  dpo-full20-ckp1200/
+<result-root>/
+  <base-model-name>/
+  <candidate-model-a>/
+  <candidate-model-b>/
 ```
 
-## LLM Judge 对比实验
+## Pairwise LLM Judge Comparison
 
-`compare_experiments.py` 用于比较模型输出。推荐评测逻辑是：每次只比较一个候选模型和同一个 base model，输出一组 candidate-vs-base 结果。
+`compare_experiments.py` runs LLM Judge comparisons and writes task-level rankings, significance files, checkpoints, and plots.
 
-示例：比较 `dpo-full20-ckp1200` 和 `base_model_baichuan-full`。
+Recommended evaluation design:
+
+- Use one stable base model as the anchor.
+- Compare each candidate model against that base model in a separate run.
+- Keep all pairwise runs under one directory so they can be aggregated later.
+
+Example:
 
 ```bash
 python compare_experiments.py \
-  --results-dir ./results \
+  --results-dir <result-root> \
   --select picked \
   --tasks auto \
-  --anchor-models base_model_baichuan-full \
+  --anchor-models <base-model-name> \
   --judge-backend api \
-  --judge-model claude-sonnet-4-5 \
-  --judge-api-base https://api.example.com/openai \
-  --output-dir ./results/LLM_Judge_compare/dpo-single/full20_ckp1200-base-claude-4.6
+  --judge-model <judge-model-name> \
+  --judge-api-base <openai-compatible-api-base> \
+  --output-dir <pairwise-run-output-dir>
 ```
 
-运行后在交互选择里选择两个模型：
+During interactive model selection, choose exactly:
 
 ```text
-base_model_baichuan-full
-dpo-full20-ckp1200
+<base-model-name>
+<candidate-model-name>
 ```
 
-脚本会为每个任务输出：
-
-- `<任务名>_ranking.csv`: 当前 pair 的 Bradley-Terry / Anchor Score 排名
-- `<任务名>_significance.csv`: 显著性检验结果
-- `checkpoints/<任务名>_checkpoint.csv`: 成对胜负矩阵
-- `checkpoints/_meta.json`: 本次比较的模型、任务和 judge 信息
-- `judge_stats/`: 排名图、显著性热力图等可视化结果
-
-对每个候选模型重复运行一次，目录可以类似：
+Each pairwise run produces files such as:
 
 ```text
-results/LLM_Judge_compare/dpo-single/
-  full10-base-claude-4.6/
-  full10_ckp700-base-claude-4.6/
-  full20-base-claude-4.6/
-  full20_ckp1200-base-claude-4.6/
+<pairwise-run-output-dir>/
+  checkpoints/
+    _meta.json
+    <task>_checkpoint.csv
+  judge_stats/
+  <task>_ranking.csv
+  <task>_significance.csv
 ```
 
-本地实验中的 `results-clean/LLM_Judge_compare/dpo-single/` 就是这种结构。
+Repeat this process for every candidate model.
 
-## 聚合 Anchor Score
+## Aggregate Candidate-vs-Base Results
 
-`aggregate_anchor_compare.py` 负责读取多组 candidate-vs-base 结果，并按统一 base model 聚合。
+`aggregate_anchor_compare.py` aggregates multiple candidate-vs-base comparison runs into a single Anchor Score report.
 
 ```bash
 python aggregate_anchor_compare.py \
-  --input-dir ./results/LLM_Judge_compare/dpo-single \
-  --output-dir ./results/LLM_Judge_compare/dpo-anchor-aggregate \
-  --anchor-model base_model_baichuan-full \
-  --order-task "考题生成" \
+  --input-dir <pairwise-runs-root> \
+  --output-dir <aggregate-output-dir> \
+  --anchor-model <base-model-name> \
+  --order-task <task-name> \
   --bootstrap 10000
 ```
 
-聚合逻辑：
+Aggregation logic:
 
-1. 扫描 `--input-dir` 下的每个比较实验目录。
-2. 读取 `checkpoints/_meta.json`，确认该实验严格只包含 base model 和一个 candidate model。
-3. 读取每个任务的 `checkpoints/<任务名>_checkpoint.csv`。
-4. 汇总所有 candidate-vs-base 胜负票数。
-5. 对每个任务计算 Anchor Score 和 bootstrap 置信区间。
-6. 按 `--order-task` 指定的任务排序，输出跨任务总表和图表。
+1. Scan all pairwise run directories under `--input-dir`.
+2. Read each run's `checkpoints/_meta.json`.
+3. Keep only strict base-vs-candidate runs.
+4. Read task-level win matrices from `checkpoints/<task>_checkpoint.csv`.
+5. Merge candidate-vs-base vote counts across runs.
+6. Compute Anchor Score and bootstrap confidence intervals for each task.
+7. Write task rankings, a cross-task summary, a manifest, and figures.
 
-主要输出：
-
-```text
-results/LLM_Judge_compare/dpo-anchor-aggregate/<judge-name>/
-  all_tasks_anchor_summary.csv
-  manifest.csv
-  病历标准化_anchor_ranking.csv
-  考题生成_anchor_ranking.csv
-  临床思维_anchor_ranking.csv
-  病历综合评分_anchor_ranking.csv
-  judge_stats/
-```
-
-本地 `results-clean/LLM_Judge_compare/dpo-anchor-aggregate/api_claude-sonnet-4-6/` 是参考结果结构：它聚合了多个 DPO checkpoint 相对 `base_model_baichuan-full` 的比较结果，并生成跨任务 Anchor Score 汇总。
-
-## 目录约定
-
-以下目录通常只存在于本地，不应提交到仓库：
+Typical aggregate output:
 
 ```text
-data/
-output/
-results/
-results-clean/
-resources/
-tmp/
+<aggregate-output-dir>/
+  <judge-name>/
+    all_tasks_anchor_summary.csv
+    manifest.csv
+    <task>_anchor_ranking.csv
+    judge_stats/
 ```
 
-私有数据抽取脚本也不进入公开仓库。公开仓库只保留训练、生成、比较和聚合所需的项目代码。
+## Public Repository Scope
+
+The following are intentionally excluded from version control:
+
+- raw and processed datasets
+- model checkpoints and adapters
+- generated outputs
+- evaluation result directories
+- local resources and downloaded files
+- logs and temporary files
+- private data extraction scripts
+- environment files containing secrets
+
+This keeps the public repository focused on reusable training, generation, comparison, and aggregation code.

@@ -1,0 +1,41 @@
+# verl 环境配置，须先运行下面的命令，然后启用pip install -r requirements_verl.txt
+# 下面是安装 verl 的命令：
+# conda create -n aiedu-verl python==3.12 -y
+# conda activate aiedu-verl
+
+# python -m pip install -U pip setuptools wheel
+
+# git clone https://github.com/volcengine/verl.git
+# cd verl
+# export PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# USE_MEGATRON=0 bash scripts/install_vllm_sglang_mcore.sh
+# pip install --no-deps -e .
+--index-url https://download.pytorch.org/whl/cu130
+--extra-index-url https://pypi.org/simple
+# --extra-index-url https://mirrors.aliyun.com/pypi/simple/
+--extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple
+
+torch==2.11.0
+torchvision==0.26.0
+torchaudio==2.11.0
+
+vllm==0.20.2
+
+sentencepiece
+bitsandbytes
+scipy
+statsmodels
+choix
+jsonlines
+openpyxl
+pdfplumber
+openai
+regex
+rich
+matplotlib
+# PEFT LoRA injection fails if an old torchao is present.
+# Keep torchao absent or newer than this; pin here to avoid torchao==0.9.0.
+torchao>0.16.0
+
+# After installing the above dependencies, you can install flash-attn with the following command:
+# pip install flash-attn --no-build-isolation

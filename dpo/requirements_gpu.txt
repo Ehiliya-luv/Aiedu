@@ -1,0 +1,31 @@
+# torch 版本依赖（固定为 CUDA 12.4 + torch 2.6.0）
+--index-url https://download.pytorch.org/whl/cu124
+--extra-index-url https://pypi.org/simple
+
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
+
+# ========== 训练框架（GPU） ==========
+# 核心包版本与 NPU 环境保持一致，QLoRA 方案使用 bitsandbytes
+transformers==4.57.1
+tokenizers==0.22.0
+trl==1.0.0
+accelerate==1.4.0
+peft==0.14.0
+bitsandbytes>=0.43.3,<0.46.0
+
+# ========== 数据处理 ==========
+datasets==4.8.4
+jsonlines>=4.0.0,<5.0.0
+
+# ========== 基础工具（Python 3.11 兼容）==========
+tqdm>=4.66.0,<5.0.0
+numpy==1.26.4
+scipy>=1.13.0,<2.0.0
+pandas>=2.0.0,<3.0.0
+sentencepiece>=0.1.99,<1.0.0
+protobuf==4.25.3
+huggingface-hub>=0.36.0,<1.0.0
+regex>=2023.12.0,<2025.0.0
+rich>=13.0.0,<15.0.0

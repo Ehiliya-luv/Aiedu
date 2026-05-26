@@ -1,0 +1,38 @@
+# ========== 核心环境说明 ==========
+# 1. PyTorch 2.6.0 + torch_npu 2.6.0 已预装（CANN 8.2 配套）
+# 2. 以下"昇腾系统级依赖"是华为官方镜像预装包，手动环境必须显式安装
+#    - 缺失任一将导致 NPU 编译失败（500001 错误）或模型加载失败
+# 3. 所有版本经 Atlas 800T A2 (CANN 8.2 + Python 3.11) 实测验证
+# 4. 核心包版本与 GPU 环境保持一致，QLoRA 方案使用 llamafactory（不支持 bitsandbytes）
+
+# ========== 昇腾系统级依赖（华为官方镜像预装，手动环境必需）==========
+decorator==5.1.1           # TBE 编译器硬依赖（缺失导致 500001 错误）
+einops==0.7.0              # NPU Flash Attention 硬依赖
+importlib_metadata==6.11.0 # torch_npu 分布式模块兼容性（Python 3.11 仍需）
+filelock==3.20.3           # 模型缓存锁机制（华为镜像预装 3.20.3）
+typing_extensions==4.15.0  # torch 2.6.0 类型系统
+cloudpickle==2.2.1         # HCCL 分布式序列化（多卡训练必需）
+
+# ========== 训练框架（NPU）==========
+# 核心包版本与 GPU 环境保持一致
+# NPU 环境与 CUDA 环境共用 TRL DPOTrainer
+transformers==4.57.1
+tokenizers==0.22.0
+trl==1.0.0
+accelerate==1.4.0
+peft==0.14.0
+
+# ========== 数据处理 ==========
+datasets==3.2.0
+jsonlines>=4.0.0,<5.0.0
+
+# ========== 基础工具（Python 3.11 兼容）==========
+tqdm>=4.66.0,<5.0.0
+numpy==1.26.4              # torch 2.6.0 官方推荐（Python 3.11 兼容）
+scipy>=1.13.0,<2.0.0       # Python 3.11 + aarch64 安全版本
+pandas>=2.0.0,<3.0.0       # Python 3.11 无 2.1.4 限制
+sentencepiece>=0.1.99,<1.0.0
+protobuf==4.25.3           # Python 3.11 推荐版本（3.20.3 仅限 Python 3.9）
+huggingface-hub>=0.36.0,<1.0.0
+regex>=2023.12.0,<2025.0.0
+rich>=13.0.0,<15.0.0

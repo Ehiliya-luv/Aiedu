@@ -1,0 +1,41 @@
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data and generated outputs
+data/
+output/
+outputs/
+results/
+results*/
+dpo/data/
+dpo/output/
+
+# Private data extraction scripts
+dpo/export_rl_data.py
+dpo/raw_simple_stats.py
+dpo/sample_rl_train.py
+
+# Python runtime and tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.ipynb_checkpoints/
+
+# Local environments
+.venv/
+venv/
+env/
+
+# Local resources, downloaded artifacts, and reference files
+resources/
+
+# Temporary files and logs
+tmp/
+*.log
+
+# Local agent/work memory
+.workbuddy/

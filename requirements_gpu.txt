@@ -1,0 +1,34 @@
+--index-url https://download.pytorch.org/whl/cu128
+--extra-index-url https://pypi.org/simple
+
+torch==2.10.0
+torchvision==0.25.0
+torchaudio==2.10.0
+
+trl[vllm]==1.0.0
+vllm==0.17.1
+
+transformers==4.57.1
+tokenizers==0.22.0
+accelerate==1.4.0
+peft==0.14.0
+bitsandbytes>=0.45.0,<0.46.0
+
+datasets==4.8.4
+jsonlines>=4.0.0,<5.0.0
+
+numpy>=2.1,<2.6
+protobuf==6.33.6
+scipy>=1.13.0,<2.0.0
+pandas>=2.2.0,<3.0.0
+sentencepiece>=0.1.99,<1.0.0
+huggingface-hub>=0.36.0,<1.0.0
+openai>=1.99.1,<2.25.0
+regex>=2023.12.0,<2025.0.0
+rich>=13.0.0,<15.0.0
+openpyxl>=3.1.5,<4.0.0
+pdfplumber>=0.11.4,<1.0.0
+opencv-python-headless>=4.13.0
+choix>=0.3.0,<1.0.0
+statsmodels>=0.13.0,<1.0.0
+matplotlib>=3.7.0,<4.0.0
